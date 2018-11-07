@@ -14,9 +14,9 @@ error_reporting(E_ALL);
 require_once(BASE_DIR . "library/TxDatabase.php");
 $db = TxDatabase::getInstance()->getConn('t_user');
 $trans = new TxTransaction($db);
-$trans->begin();
+$trans->begin(2);
 
-$money = 50;
+$money = 100;
 try
 { 
     //本地事务
@@ -26,17 +26,18 @@ try
          throw new Exception("starter fail", 1); 
     }
     
+    $tomoney = $money/2;
     //远程服务1
-    $res1 = Util::post("http://my.weibo.com/actor_2/account/update", array('money'=>$money,'groupId' => $trans->getTransGroup()->groupId));
+    $res1 = Util::post("http://my.weibo.com/actor_2/account/update", array('money'=>$tomoney,'groupId' => $trans->getTransGroup()->groupId));
     if($res1 == Constant::$tx_complete_fail){
         throw new Exception("actor_2 fail", 1);  
     }
 
-    // //远程服务2
-    // $res2 = Util::post("127.0.0.1:8080/?c=account&a=update",array('money'=>$money));
-    // if($res2 == Constant::$tx_complete_fail){
-    //     throw new Exception("actor_2 fail", 1);  
-    // }
+    //远程服务2
+    $res2 = Util::post("http://my.weibo.com/actor_3/account/update",array('money'=>$tomoney,'groupId' => $trans->getTransGroup()->groupId));
+    if($res2 == Constant::$tx_complete_fail){
+        throw new Exception("actor_3 fail", 1);  
+    }
 }
 catch(Exception $e)
 {

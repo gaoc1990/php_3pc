@@ -14,22 +14,25 @@ class Account
 		require_once(BASE_DIR . "library/TxDatabase.php");
 		$db = TxDatabase::getInstance()->getConn('t_user2');
 		$trans = new TxTransaction($db);
-		$trans->begin();
+		$trans->begin(1);
 
 		$money = $_REQUEST['money'];
 		try
 		{
 		    require_once(BASE_DIR . "service/AccountService.php");
 			$num = AccountService::getInstance()->pay($money);
+			if(!$num || $num < 1){
+				throw new Exception("update error", 1);
+			}
 		}
 		catch(Exception $e)
 		{
 		    Log::getInstance()->error($e->getMessage());
 		    $trans->rollback();
+		    exit(Constant::$tx_complete_fail);
 		}
-		$trans->commit();
+		$result = $trans->commit();
 
-		exit("finish");
-
+		exit(Constant::$tx_complete_ok);
 	}  
 }

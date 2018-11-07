@@ -24,13 +24,10 @@ class AccountService
 	 * 支付扣款
 	 * @return [type] [description]
 	 */
-	public static function pay(){
-		$trans = new TxTransaction();
-		$db = $trans->begin();		
-
-		$db = TxDatabase::getInstance()->getConn('t_user');
-		$sql ="update table t_user3.account set money = money - 50 where uid = 213147";
-		$db->query();
+	public static function pay($money){	
+		$db = TxDatabase::getInstance()->getConn('t_user3');
+		$sql ="update account set money = money + {$money} where uid = 213147";
+		$db->query($sql,array());
 		$num = $db->affectedCount();
 
 		return $num;

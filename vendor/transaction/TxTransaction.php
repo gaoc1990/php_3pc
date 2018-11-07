@@ -11,6 +11,8 @@ class TxTransaction extends TransactionHandler implements ITxTransaction
 	public $trans_commit;
 	public $trans_rollback;
 
+	// public $config;
+
 
 	public function __construct($db = null){
 		//初始化swool_client
@@ -30,7 +32,8 @@ class TxTransaction extends TransactionHandler implements ITxTransaction
 	 * 开启本地事务
 	 * @return [type] [description]
 	 */
-	public function begin(){
+	public function begin($timeout = null){
+		$this->setTimeOut($timeout);
 		//添加全局事务
 		if($this->transaction->role == Constant::$txgroup_role_starter)	{
 			$res = $this->addTxGroup();
@@ -77,7 +80,7 @@ class TxTransaction extends TransactionHandler implements ITxTransaction
 				    fastcgi_finish_request();
 				}
 				//注册失败回滚事务
-				$this->rollback();
+				$this->localRollback();
 			}
 
 			//如果是fpm返回并继续执行
@@ -95,7 +98,7 @@ class TxTransaction extends TransactionHandler implements ITxTransaction
 			Log::getInstance()->info('actor :  wait pre-commit');
 
 			//同步阻塞等待调用
-			$this->wait();
+			$res = $this->wait();
 		}
 		else if($this->transaction->role == Constant::$txgroup_role_starter)
 		{

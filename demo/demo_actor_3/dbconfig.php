@@ -1,8 +1,9 @@
 <?php 
 
 	$config = array(
-		't_user1' => array(
+		't_user3' => array(
 			'dsn'	=> '',
+			'port' 	=> 3306,
 			'hostname' => 'localhost',
 			'username' => 'root',
 			'password' => '123456',

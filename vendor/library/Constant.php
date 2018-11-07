@@ -10,6 +10,8 @@ class Constant{
 	public static $tx_status_commit = 4;
 	public static $tx_status_rollback = 5;
 
+	public static $tx_status_precommit_fail = 6;
+
 	//事务执行应答
 	public static $tx_complete_fail = "fail";
 	public static $tx_complete_ok = "ok";

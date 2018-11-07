@@ -47,12 +47,16 @@ class TransactionHandler
 
         //添加发起者
         $transaction = new Transaction();
-        $transaction->transId 		= Util::createStarterId($transGroup->groupId);
+        if($role ==  Constant::$txgroup_role_starter){
+	        $transaction->transId 		= Util::createStarterId($transGroup->groupId);
+	    }else{
+	    	$transaction->transId 		= Util::createActorId($transGroup->groupId);
+	    }
         $transaction->role 		= $role;
         $transaction->status 		= Constant::$tx_status_begin;
         $transaction->groupId 		= $transGroup->groupId;
         $transaction->waitMaxTime 	= 3;
-        $transaction->createTime 	= time();
+        $transaction->createTime 	= microtime(true);
         $transaction->propagation 	= $propagation;
 
         //设置事务执行类和事务补偿类（反射执行）
@@ -61,6 +65,13 @@ class TransactionHandler
 
         $this->transGroup = $transGroup;
         $this->transaction = $transaction;
+	}
+
+	public function setTimeOut($timeout=null){
+		if($timeout){
+			$this->transaction->waitMaxTime = $timeout;
+			$this->transGroup->waitTime = $timeout;
+		}
 	}
 	
 	/**
@@ -74,7 +85,8 @@ class TransactionHandler
         $socketData->action = Constant::$socket_action_starttrans;
         $socketData->transaction = $this->transaction;
 
-        $this->sw_client->connect();
+        $config = array('timeout' => $this->transaction->waitMaxTime);
+        $this->sw_client->connect($config);
         $this->sw_client->sendMsg($socketData);
 
         $ret = $this->sw_client->recv();
@@ -96,7 +108,8 @@ class TransactionHandler
         $socketData->action = Constant::$socket_action_regtxactor;
         $socketData->transaction = $this->transaction;
 
-        $this->sw_client->connect();
+        $config = array('timeout' => $this->transaction->waitMaxTime);
+        $this->sw_client->connect($config);
         $this->sw_client->sendMsg($socketData);
 
         $ret = $this->sw_client->recv();
@@ -176,6 +189,18 @@ class TransactionHandler
 
 		return true;
 	}
+
+	/**
+	 * 本地事务回滚
+	 * @return [type] [description]
+	 */
+	protected function localRollback(){
+		Log::getInstance()->error("local rollback");
+		//本地事务回滚
+		$this->transDb->{$this->trans_rollback}();
+		$this->transaction->status = Constant::$tx_status_rollback;
+	}
+
 	/**
 	 * 发起回滚
 	 * @return [type] [description]
@@ -194,11 +219,24 @@ class TransactionHandler
 				Log::getInstance()->error("starter: send rollback failure , local rollback");
 			}
 
+		}else{
+			//参与者处理失败
+			$this->transaction->status = Constant::$tx_status_rollback;
+			//如果是fpm返回并继续执行
+			if(PHP_SAPI == "fpm-fcgi" || PHP_SAPI == "cgi-fcgi"){
+				echo Constant::$tx_complete_fail;
+				$size=ob_get_length();  
+		        header("Content-Length: $size");
+		        header("Connection: Close");   
+				// 刷新buffer
+			    ob_flush();
+			    flush();
+			    // 断开浏览器连接
+			    fastcgi_finish_request();
+			}
 		}
-		Log::getInstance()->error("local rollback");
-		//本地事务回滚
-		$this->transDb->{$this->trans_rollback}();
-		$this->transaction->status = Constant::$tx_status_rollback;
+
+		$this->localRollback();
 
 		return true;
 	}
@@ -210,51 +248,63 @@ class TransactionHandler
 	 */
 	protected function wait(){
 		$socketData = $this->sw_client->recv();
-		if(!$socketData || $socketData->action != Constant::$socket_action_precommit)
+
+		if(!$socketData)
 		{
 			//没有等到pre_commit
-			$this->transaction->status = Constant::$tx_status_rollback;
-			//超时或者不是正常事务操作视为超时，直接本地事务回滚操作
-			$this->tranDb->{$this->trans_rollback}();
-			Log::getInstance()->info("actor: wait precommit timeout ");
+			$this->localRollback();
+			Log::getInstance()->info("actor: wait precommit or rollback timeout ");
 			return false;
 
 		}
-		else if($socketData->action == Constant::$socket_action_precommit)
-		{
-			//判断事务状态
-			if($this->transaction->status != Constant::$tx_status_cancommit){
-				$socketData->result = Constant::$tx_complete_ok;
-				$socketData->action = Constant::$socket_result_precommit;
-				$this->sw_client->sendMsg($socketData);
 
-				Log::getInstance()->info("actor: preCommit response failure");
-				return false;
-			}
+		switch ($socketData->action) {
+			case Constant::$socket_action_precommit:
+				{
+					//判断事务状态
+					if($this->transaction->status != Constant::$tx_status_cancommit){
+						$socketData->result = Constant::$tx_complete_ok;
+						$socketData->action = Constant::$socket_result_precommit;
+						$this->sw_client->sendMsg($socketData);
 
-			Log::getInstance()->info("actor: preCommit response ok");
-			//设置事务状态
-			$this->transaction->status = Constant::$tx_status_precommit;
+						Log::getInstance()->info("actor: preCommit response failure");
+						return false;
+					}
 
-			$socketData->result = Constant::$tx_complete_ok;
-			$socketData->action = Constant::$socket_result_precommit;
-			$this->sw_client->sendMsg($socketData);
+					Log::getInstance()->info("actor: preCommit response ok");
+					//设置事务状态
+					$this->transaction->status = Constant::$tx_status_precommit;
+
+					$socketData->result = Constant::$tx_complete_ok;
+					$socketData->action = Constant::$socket_result_precommit;
+					$this->sw_client->sendMsg($socketData);
+
+					$command_commit = $this->sw_client->recv();
+					if(!$command_commit || $command_commit->action == Constant::$socket_action_commit)
+					{
+						if($this->transaction->status == Constant::$tx_status_precommit){
+							$this->transDb->{$this->trans_commit}();
+							$this->transaction->status = Constant::$tx_status_commit;
+						}
+					}
+					else if($command_commit->action == Constant::$socket_action_rollback)
+					{
+						$this->localRollback();
+					}else{
+						//超时提交
+						$this->transDb->{$this->trans_commit}();
+						$this->transaction->status = Constant::$tx_status_commit;
+					}
+					
+				}
+				break;
+
+			case Constant::$socket_action_rollback:
+				$this->localRollback();
+				break;
+			default:
+				break;
 		}
-
-		$command_commit = $this->sw_client->recv();
-		if(!$command_commit || $command_commit->action == Constant::$socket_action_commit)
-		{
-			if($this->transaction->status == Constant::$tx_status_precommit){
-				$this->transDb->{$this->trans_commit}();
-				$this->transaction->status = Constant::$tx_status_commit;
-			}
-		}
-		else if($command_commit->action == Constant::$socket_action_rollback)
-		{
-			$this->transDb->{$this->trans_rollback}();
-			$this->transaction->status = Constant::$tx_status_rollback;
-		}
-
 		return true;
 	}
 

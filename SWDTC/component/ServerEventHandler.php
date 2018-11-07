@@ -66,14 +66,14 @@ class ServerEventHandler
 						throw new Exception("regist actor error",1);
 					}
 					//成功返回
-					$socketData = TxSocketData::createResponse(Constant::$tx_complete_ok);
-					$res = $this->sendMsg($fd, $socketData);
+					$response = TxSocketData::createResponse(Constant::$tx_complete_ok);
+					$res = $this->sendMsg($fd, $response);
 
 				}catch(Exception $e){
 					Log::getInstance()->error($e->getMessage());
 					//失败返回
-					$socketData = TxSocketData::createResponse(Constant::$tx_complete_fail);
-					$res = $this->sendMsg($fd, $socketData);
+					$response = TxSocketData::createResponse(Constant::$tx_complete_fail);
+					$res = $this->sendMsg($fd, $response);
 				}
 				Log::getInstance()->info("txmanage register transaction end");
 				break;
@@ -97,8 +97,8 @@ class ServerEventHandler
 
 					if($res){
 						Log::getInstance()->error("add group right");
-						$socketData = TxSocketData::createResponse(Constant::$tx_complete_ok);
-						$res = $this->sendMsg($fd, $socketData);
+						$response = TxSocketData::createResponse(Constant::$tx_complete_ok);
+						$res = $this->sendMsg($fd, $response);
 					}else{
 						throw new Exception("add transGroup error",1);
 					}		
@@ -106,8 +106,8 @@ class ServerEventHandler
 				catch(Exception $e)
 				{
 					Log::getInstance()->error($e->getMessage());
-					$socketData = TxSocketData::createResponse(Constant::$tx_complete_fail);
-					$res = $this->sendMsg($fd, $socketData);
+					$response = TxSocketData::createResponse(Constant::$tx_complete_fail);
+					$res = $this->sendMsg($fd, $response);
 				}
 
 				break;
@@ -123,8 +123,8 @@ class ServerEventHandler
 					$transactionList = TransGroupManage::getInstance()->getItemsByGroupId($groupId);
 					if(empty($transactionList))
 					{
-						$socketData = TxSocketData::createResponse(Constant::$tx_complete_fail);
-						$this->sendMsg($fd, $socketData);
+						$response = TxSocketData::createResponse(Constant::$tx_complete_fail);
+						$this->sendMsg($fd, $response);
 
 						throw new Exception("commit cancel: have no transaction actor", 10001);
 					}
@@ -136,8 +136,8 @@ class ServerEventHandler
 					{
 						Log::getInstance()->error($e->getMessage());
 						//通知发起者回滚
-						$socketData = TxSocketData::createResponse(Constant::$tx_complete_fail);
-						$this->sendMsg($fd,$socketData);
+						$response = TxSocketData::createResponse(Constant::$tx_complete_fail);
+						$this->sendMsg($fd,$response);
 					}
 					Log::getInstance()->info("txmanage precommit end");
 				}
@@ -150,8 +150,10 @@ class ServerEventHandler
 					TransGroupManage::getInstance()->updateGroupStatus($groupId, Constant::$tx_status_commit);
 
 					TransactionManage::getInstance()->commit($groupId);
-					$socketData = TxSocketData::createResponse(Constant::$tx_complete_ok);
-					$this->sendMsg($fd, $socketData);
+					$response = TxSocketData::createResponse(Constant::$tx_complete_ok);
+					$this->sendMsg($fd, $response);
+
+					TransGroupManage::getInstance()->updateItemStatus($groupId, $socketData->transaction,Constant::$tx_status_commit);
 
 					Log::getInstance()->info("txmanage commit end");
 				}
@@ -169,14 +171,15 @@ class ServerEventHandler
 					TransactionManage::getInstance()->rollback($groupId);
 
 					//通知发起者回滚
-					$socketData = TxSocketData::createResponse(Constant::$tx_complete_ok);
-					$this->sendMsg($fd,$socketData);
+					$response = TxSocketData::createResponse(Constant::$tx_complete_ok);
+					$this->sendMsg($fd,$response);
+					TransGroupManage::getInstance()->updateItemStatus($groupId, $socketData->transaction,Constant::$tx_status_rollback);
 
 				}catch(Exception $e){
 					Log::getInstance()->error($e->getMessage());
 					//通知发起者回滚
-					$socketData = TxSocketData::createResponse(Constant::$tx_complete_fail);
-					$this->sendMsg($fd,$socketData);
+					$response = TxSocketData::createResponse(Constant::$tx_complete_fail);
+					$this->sendMsg($fd,$response);
 				}
 				Log::getInstance()->info("txmanage rollback end");
 				break;
@@ -190,11 +193,13 @@ class ServerEventHandler
 						if($groupStatus == Constant::$tx_status_cancommit){
 							//设置事务组状态为rollback
 							TransGroupManage::getInstance()->updateGroupStatus($groupId, Constant::$tx_status_rollback);
+							TransGroupManage::getInstance()->updateItemStatus($groupId, $socketData->transaction, Constant::$tx_status_precommit_fail);
+
 							$response= TxSocketData::createResponse(Constant::$tx_complete_fail);
 
 							//给发起者发送失败消息
 							$starter = TransGroupManage::getInstance()->getTransGroupStarter($groupId);
-							$this->sendMsg($starter->fd, $socketData);
+							$this->sendMsg($starter->fd, $response);
 						}
 					}else{
 

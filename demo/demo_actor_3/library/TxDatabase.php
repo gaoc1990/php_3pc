@@ -63,10 +63,10 @@ class TxDatabase {
      * 链接数据库
      * @param array $config //数据库配置
      */
-    protected function _connect($dbname = "t_user") {
+    protected function _connect($dbname = "t_user3") {
         try {
             //获取数据库配置
-            $config = include(BASE_DIR . "config.php");
+            $config = include(BASE_DIR . "dbconfig.php");
             $dbconfig = $config[$dbname];
             $this->pdo = new PDO("mysql:host={$dbconfig['hostname']};dbname={$dbconfig['database']};port={$dbconfig['port']};charset={$dbconfig['char_set']}", $dbconfig['username'], $dbconfig['password'], array(
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,

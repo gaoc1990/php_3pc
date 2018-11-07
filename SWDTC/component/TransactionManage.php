@@ -57,7 +57,7 @@ class TransactionManage implements ITransactionManage
 		// }
 
 		//设置超时定时器
-		$timer = swoole_timer_after(3000, function() use ($groupId, $fd) {
+		$timer = swoole_timer_after($socketData->transGroup->waitTime * 1000, function() use ($groupId, $fd) {
 			$status =  TransGroupManage::getInstance()->getGroupStatus($groupId);
 			if($status == Constant::$tx_status_precommit){
 				Log::getInstance()->info('other workers already response precommit status');
@@ -96,7 +96,11 @@ class TransactionManage implements ITransactionManage
 				//记录补偿信息
 				Log::getInstance()->error("txmanage: commit, error actor's  fd info, fd: {$item->fd}");
 			}
+			TransGroupManage::getInstance()->updateItemStatus($groupId,$item,Constant::$tx_status_commit);
 		}
+
+		//保存事务状态
+		TransGroupManage::getInstance()->updateGroupStatus($groupId,Constant::$tx_status_commit);
 
 		return true;
 	}
@@ -117,11 +121,12 @@ class TransactionManage implements ITransactionManage
 
 		$socketData = new TxSocketData();
 		foreach($list as $item){
-			if($item->role = Constant::$txgroup_role_starter){
+			if($item->role == Constant::$txgroup_role_starter){
 				continue;
 			}
 			//拿到连接并发送回滚消息
 			if(App::$server->exist($item->fd)){
+
 				$socketData->transGroup = new TransactionGroup($groupId);
 				$socketData->transaction = $item;
 				$socketData->action = Constant::$socket_action_rollback;
@@ -135,8 +140,11 @@ class TransactionManage implements ITransactionManage
 				//fd无效
 				Log::getInstance()->error("txmanage: rollback, error actor's  fd info, fd: {$item->fd}");
 			}
+			TransGroupManage::getInstance()->updateItemStatus($groupId,$item,Constant::$tx_status_rollback);
 		}
 
+		//保存事务状态
+		TransGroupManage::getInstance()->updateGroupStatus($groupId,Constant::$tx_status_rollback);
 	}
 
 	/**
